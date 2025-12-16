@@ -2,41 +2,57 @@ import pandas as pd
 import gspread
 import requests
 import time
+import base64  # ADICIONADO: Para decodificar
+import binascii # ADICIONADO: Para tratar erros de decodificação
 from datetime import datetime, timedelta
 from pytz import timezone
 import os
-import json  # Para carregar o JSON das credenciais diretamente
+import json
 
 # --- CONSTANTES GLOBAIS ---
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 NOME_ABA = 'Base Pending Tratado'
 INTERVALO = 'A:F'
 
-# --- AUTENTICAÇÃO CORRIGIDA (SEM BASE64!) ---
+# --- AUTENTICAÇÃO ATUALIZADA (SUPORTA JSON PURO E BASE64) ---
 def autenticar_google():
-    """Autentica usando o Secret JSON do GitHub (NÃO é base64!)."""
-
-    # 1. Lê o JSON puro do segredo
-    creds_json_str = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON')
-    if not creds_json_str:
+    """
+    Autentica usando o Secret JSON do GitHub.
+    Tenta ler como JSON puro primeiro. Se falhar, tenta decodificar de Base64.
+    """
+    creds_var = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON')
+    
+    if not creds_var:
         print("❌ Erro: Variável de ambiente 'GOOGLE_SERVICE_ACCOUNT_JSON' não definida.")
         return None
 
+    creds_dict = None
+
+    # 1. Tenta carregar como JSON direto
     try:
-        # 2. Carrega a string JSON diretamente em um dicionário — SEM base64!
-        creds_dict = json.loads(creds_json_str)
+        creds_dict = json.loads(creds_var)
+        print("✅ Credenciais carregadas via JSON puro.")
+    except json.JSONDecodeError:
+        # 2. Se falhar, tenta decodificar Base64
+        try:
+            print("⚠️ JSON direto inválido, tentando decodificar Base64...")
+            decoded_bytes = base64.b64decode(creds_var, validate=True)
+            decoded_str = decoded_bytes.decode("utf-8")
+            creds_dict = json.loads(decoded_str)
+            print("✅ Credenciais decodificadas de Base64 com sucesso.")
+        except (binascii.Error, json.JSONDecodeError, UnicodeDecodeError) as e:
+            print(f"❌ Erro Crítico: Falha ao ler credenciais (Nem JSON puro, nem Base64 válido). Detalhe: {e}")
+            return None
 
-        # 3. Autentica com o dicionário
-        cliente = gspread.service_account_from_dict(creds_dict, scopes=SCOPES)
-        print("✅ Cliente gspread autenticado com Service Account (via JSON direto).")
-        return cliente
-
-    except json.JSONDecodeError as e:
-        print(f"❌ Erro ao decodificar o JSON das credenciais: {e}")
-        print("   Isso geralmente significa que o segredo está corrompido ou foi salvo incorretamente.")
+    if not creds_dict:
         return None
+
+    try:
+        cliente = gspread.service_account_from_dict(creds_dict, scopes=SCOPES)
+        print("✅ Cliente gspread autenticado com Service Account.")
+        return cliente
     except Exception as e:
-        print(f"❌ Erro ao autenticar com Service Account: {e}")
+        print(f"❌ Erro ao conectar com gspread: {e}")
         return None
 
 
@@ -187,7 +203,7 @@ def main():
         print("❌ Erro: Variáveis de ambiente SEATALK_WEBHOOK_URL e/ou SPREADSHEET_ID não definidas.")
         return
 
-    cliente = autenticar_google()  # Agora lê GOOGLE_SERVICE_ACCOUNT_JSON
+    cliente = autenticar_google()  # Agora trata Base64 automaticamente
     if not cliente:
         print("❌ Falha na autenticação. Encerrando.")
         return

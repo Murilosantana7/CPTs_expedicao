@@ -39,7 +39,7 @@ def montar_mensagem(df):
     
     # Início do Bloco Único
     saida = ["```"]
-    saida.append("🚛 LTs pendentes:\n")
+    saida.append("🚛 LTs pendentes nas próximas 2h:\n")
     
     if df_2h.empty:
         saida.append("✅ Sem pendências para as próximas 2h.")
@@ -47,16 +47,17 @@ def montar_mensagem(df):
         df_2h = df_2h.sort_values('CPT')
         df_2h['H_Grupo'] = df_2h['CPT'].dt.hour
         
-        # Larguras para o cabeçalho interno
-        w_lt, w_doca, w_cpt = 14, 8, 8
+        # Larguras ajustadas: Doca mais estreita e CPT para centralização
+        w_lt = 14
+        w_doca = 5  # Reduzido de 8 para 5
+        w_cpt = 7   # Largura para centralizar o texto "CPT:" e a hora
         
         for hora, grupo in df_2h.groupby('H_Grupo', sort=False):
-            # Título do grupo
             qtd = len(grupo)
             saida.append(f"{qtd} LH{'s' if qtd > 1 else ''} pendente{'s' if qtd > 1 else ''} às {hora:02d}h\n")
             
-            # Cabeçalho para cada horário
-            sub_header = f"{'LT':^{w_lt}} | {'Doca':^{w_doca}} | {'CPT:':^{w_cpt}} | Destino"
+            # Cabeçalho: CPT: centralizado
+            sub_header = f"{'LT':^{w_lt}} | {'Doca':^{w_doca}} | {'CPT':^{w_cpt}} | Destino"
             saida.append(sub_header)
             
             for _, row in grupo.iterrows():
@@ -65,11 +66,10 @@ def montar_mensagem(df):
                 cpt = row['CPT'].strftime('%H:%M')
                 destino = row['Station Name'].strip()
                 
-                # Linha com CPT antes do Destino
+                # Linha com Doca estreita e CPT centralizado
                 linha = f"{lt:<{w_lt}} | {doca:^{w_doca}} | {cpt:^{w_cpt}} | {destino}"
                 saida.append(linha)
             
-            # Linha separadora sólida
             saida.append("\n" + "—"*45 + "\n")
 
     # Rodapé de Turnos
@@ -121,10 +121,8 @@ def main():
         df['Turno'] = df['CPT'].dt.hour.apply(get_turno)
         
         mensagem = montar_mensagem(df)
-        
-        # Envio em bloco único
         requests.post(webhook, json={"tag": "text", "text": {"content": mensagem}})
-        print("✅ Padrão com cabeçalhos por horário aplicado!")
+        print("✅ Mensagem enviada com novos ajustes de coluna!")
         
     except Exception as e:
         print(f"Erro: {e}")

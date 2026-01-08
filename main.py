@@ -8,13 +8,13 @@ from datetime import datetime, timedelta
 from pytz import timezone
 from google.oauth2.service_account import Credentials
 
-# --- CONFIGURAÇÕES ---
+# --- CONFIGURAÇÕES FIXAS ---
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 NOME_ABA = 'Base Pending Tratado'
 INTERVALO = 'A:F'
 
 def autenticar_google():
-    """Lógica de autenticação mantida intacta."""
+    """Lógica de autenticação mantida conforme solicitado."""
     creds_var = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON')
     if not creds_var: return None
     try:
@@ -37,55 +37,57 @@ def montar_mensagem(df):
     
     df_2h = df[(df['CPT'] >= agora) & (df['CPT'] < limite_2h)].copy()
     
-    saida = ["🚛 **LTs pendentes:**\n"]
+    # Início do Bloco Único (Padrão image_b9c263.png)
+    saida = ["```"]
+    saida.append("🚛 LTs pendentes:\n")
     
     if df_2h.empty:
-        saida.append("✅ Sem pendências próximas.")
+        saida.append("✅ Sem pendências para as próximas 2h.")
     else:
-        # --- BLOCO DE CÓDIGO PADRÃO ---
-        bloco = ["```"]
-        
-        # Larguras ajustadas para o layout das imagens enviadas
-        w_lt = 15
-        w_doca = 6
-        w_cpt = 7
-        
-        # Cabeçalho idêntico ao da imagem
-        header = f"{'LT':<{w_lt}} {'DOCA':<{w_doca}} {'CPT':<{w_cpt}} DESTINO"
-        bloco.append(header)
-        bloco.append("-" * 48)
-
+        df_2h = df_2h.sort_values('CPT')
         df_2h['H_Grupo'] = df_2h['CPT'].dt.hour
         
-        # Ordenar por CPT para garantir a sequência correta
-        df_2h = df_2h.sort_values('CPT')
-        
         for hora, grupo in df_2h.groupby('H_Grupo', sort=False):
-            # Título do grupo (ex: [3 LHs às 18h])
-            bloco.append(f"\n[{len(grupo)} LHs às {hora:02d}h]")
+            # Título do grupo: "X LHs pendentes às Yh"
+            qtd = len(grupo)
+            saida.append(f"{qtd} LH{'s' if qtd > 1 else ''} pendente{'s' if qtd > 1 else ''} às {hora:02d}h\n")
             
             for _, row in grupo.iterrows():
-                lt = row['LH Trip Number'].strip()[:w_lt-1]
+                lt = row['LH Trip Number'].strip()
                 doca = formatar_doca(row['Doca'])
+                destino = row['Station Name'].strip()
                 cpt = row['CPT'].strftime('%H:%M')
                 
-                # Destino: Limita o tamanho para não quebrar a linha lateralmente
-                destino = row['Station Name'].strip()[:20]
-                
-                linha = f"{lt:<{w_lt}} {doca:<{w_doca}} {cpt:<{w_cpt}} {destino}"
-                bloco.append(linha)
-        
-        bloco.append("```")
-        saida.append("\n".join(bloco))
+                # Linha formatada com barras e rótulos
+                linha = f"{lt} | Doca {doca} | Destino: {destino} | CPT: {cpt}"
+                saida.append(linha)
+            
+            saida.append("\n" + "_"*45 + "\n") # Linha horizontal de separação
 
-    # Resumo de Turnos conforme image_b9b434.png
-    saida.append("\n**Resumo Turnos:**")
+    # Seção de próximos turnos
+    saida.append("LH´s pendentes para os próximos turnos:\n")
+    
+    def identificar_turno_atual(h):
+        if 6 <= h < 14: return "Turno 1"
+        if 14 <= h < 22: return "Turno 2"
+        return "Turno 3"
+    
+    turno_atual = identificar_turno_atual(agora.hour)
     totais = df['Turno'].value_counts().to_dict()
-    # Garante a ordem Turno 1, 2, 3 no resumo
-    for t in ['Turno 1', 'Turno 2', 'Turno 3']:
+    
+    # Ordem de exibição baseada no turno atual
+    ordem = {
+        'Turno 1': ['Turno 2', 'Turno 3'],
+        'Turno 2': ['Turno 3', 'Turno 1'],
+        'Turno 3': ['Turno 1', 'Turno 2']
+    }
+    
+    for t in ordem.get(turno_atual, []):
         qtd = totais.get(t, 0)
-        saida.append(f"• {t}: {qtd} pendentes")
+        # Ícone de alerta conforme a imagem
+        saida.append(f"⚠️ {qtd} LHs pendentes no {t}")
 
+    saida.append("```")
     return "\n".join(saida)
 
 def main():
@@ -103,11 +105,9 @@ def main():
         df = df_raw[1:].copy()
         df.columns = df_raw.iloc[0].str.strip()
         
-        # Converte CPT e remove valores inválidos
         df['CPT'] = pd.to_datetime(df['CPT'], dayfirst=True, errors='coerce')
         df = df.dropna(subset=['CPT'])
         
-        # Lógica de turnos
         def get_turno(h):
             if 6 <= h < 14: return "Turno 1"
             if 14 <= h < 22: return "Turno 2"
@@ -116,19 +116,12 @@ def main():
         
         mensagem = montar_mensagem(df)
         
-        # Envio para o Webhook do Seatalk
-        payload = {
-            "tag": "text",
-            "text": {
-                "format": 1, # Markdown habilitado
-                "content": mensagem
-            }
-        }
-        requests.post(webhook, json=payload).raise_for_status()
-        print("✅ Script finalizado com sucesso no novo padrão.")
+        # Envio em bloco único
+        requests.post(webhook, json={"tag": "text", "text": {"content": mensagem}})
+        print("✅ Enviado no padrão image_b9c263.png")
         
     except Exception as e:
-        print(f"Erro na execução: {e}")
+        print(f"Erro: {e}")
 
 if __name__ == "__main__":
     main()

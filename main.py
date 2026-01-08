@@ -8,13 +8,13 @@ from datetime import datetime, timedelta
 from pytz import timezone
 from google.oauth2.service_account import Credentials
 
-# --- CONFIGURAÇÕES FIXAS ---
+# --- CONFIGURAÇÕES FIXAS (Preservadas) ---
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 NOME_ABA = 'Base Pending Tratado'
 INTERVALO = 'A:F'
 
 def autenticar_google():
-    """Lógica de autenticação mantida conforme solicitado."""
+    """Autenticação preservada conforme solicitado."""
     creds_var = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON')
     if not creds_var: return None
     try:
@@ -37,7 +37,7 @@ def montar_mensagem(df):
     
     df_2h = df[(df['CPT'] >= agora) & (df['CPT'] < limite_2h)].copy()
     
-    # Início do Bloco Único (Padrão image_b9c263.png)
+    # Início do Bloco Único
     saida = ["```"]
     saida.append("🚛 LTs pendentes:\n")
     
@@ -47,44 +47,50 @@ def montar_mensagem(df):
         df_2h = df_2h.sort_values('CPT')
         df_2h['H_Grupo'] = df_2h['CPT'].dt.hour
         
+        # Larguras para o cabeçalho interno
+        w_lt, w_doca, w_cpt = 14, 8, 8
+        
         for hora, grupo in df_2h.groupby('H_Grupo', sort=False):
-            # Título do grupo: "X LHs pendentes às Yh"
+            # Título do grupo
             qtd = len(grupo)
             saida.append(f"{qtd} LH{'s' if qtd > 1 else ''} pendente{'s' if qtd > 1 else ''} às {hora:02d}h\n")
+            
+            # Cabeçalho para cada horário
+            sub_header = f"{'LT':^{w_lt}} | {'Doca':^{w_doca}} | {'CPT:':^{w_cpt}} | Destino"
+            saida.append(sub_header)
             
             for _, row in grupo.iterrows():
                 lt = row['LH Trip Number'].strip()
                 doca = formatar_doca(row['Doca'])
-                destino = row['Station Name'].strip()
                 cpt = row['CPT'].strftime('%H:%M')
+                destino = row['Station Name'].strip()
                 
-                # Linha formatada com barras e rótulos
-                linha = f"{lt} | Doca {doca} | Destino: {destino} | CPT: {cpt}"
+                # Linha com CPT antes do Destino
+                linha = f"{lt:<{w_lt}} | {doca:^{w_doca}} | {cpt:^{w_cpt}} | {destino}"
                 saida.append(linha)
             
-            saida.append("\n" + "_"*45 + "\n") # Linha horizontal de separação
+            # Linha separadora sólida
+            saida.append("\n" + "—"*45 + "\n")
 
-    # Seção de próximos turnos
+    # Rodapé de Turnos
     saida.append("LH´s pendentes para os próximos turnos:\n")
     
-    def identificar_turno_atual(h):
+    def get_turno_atual(h):
         if 6 <= h < 14: return "Turno 1"
         if 14 <= h < 22: return "Turno 2"
         return "Turno 3"
     
-    turno_atual = identificar_turno_atual(agora.hour)
+    turno_atual = get_turno_atual(agora.hour)
     totais = df['Turno'].value_counts().to_dict()
     
-    # Ordem de exibição baseada no turno atual
-    ordem = {
+    ordem_resumo = {
         'Turno 1': ['Turno 2', 'Turno 3'],
         'Turno 2': ['Turno 3', 'Turno 1'],
         'Turno 3': ['Turno 1', 'Turno 2']
     }
     
-    for t in ordem.get(turno_atual, []):
+    for t in ordem_resumo.get(turno_atual, []):
         qtd = totais.get(t, 0)
-        # Ícone de alerta conforme a imagem
         saida.append(f"⚠️ {qtd} LHs pendentes no {t}")
 
     saida.append("```")
@@ -118,7 +124,7 @@ def main():
         
         # Envio em bloco único
         requests.post(webhook, json={"tag": "text", "text": {"content": mensagem}})
-        print("✅ Enviado no padrão image_b9c263.png")
+        print("✅ Padrão com cabeçalhos por horário aplicado!")
         
     except Exception as e:
         print(f"Erro: {e}")

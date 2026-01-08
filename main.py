@@ -102,13 +102,15 @@ def formatar_doca(doca):
 
 
 def montar_mensagem(df):
+    """
+    Monta a mensagem em texto puro.
+    As crases (```) serão adicionadas no envio (enviar_em_blocos), como no script antigo.
+    """
     agora = datetime.now(timezone('America/Sao_Paulo')).replace(tzinfo=None)
     limite_2h = agora + timedelta(hours=2)
     turno_atual = identificar_turno(agora.hour)
 
-    # --- CORREÇÃO CRÍTICA ---
-    # Adicionado o ESPAÇO após as crases, conforme solicitado pelo Seatalk
-    mensagens = ["``` "] 
+    mensagens = []
 
     # --- TÍTULO ---
     mensagens.append("🚛 LTs pendentes:")
@@ -118,29 +120,22 @@ def montar_mensagem(df):
     df_2h = df[(df['CPT'] >= agora) & (df['CPT'] < limite_2h)].copy()
     
     if df_2h.empty:
-        mensagens.append("Sem pendências para as próximas 2h.")
+        mensagens.append("✅ Sem pendências para as próximas 2h.")
     else:
         # --- DEFINIÇÃO DO TEMPLATE ---
-        # Definimos larguras fixas. A barra '|' ficará sempre na mesma posição.
-        # {:^14} = Centralizado (Para o cabeçalho)
-        # {:<14} = Alinhado à Esquerda (Para o dado LT)
-        
         # Larguras: LT(14), Doca(6), CPT(7), Destino(25)
         
-        # 1. Cabeçalho: Tudo Centralizado
-        header_fmt = "{:^14} | {:^6} | {:^7} | {:^25}"
+        # Cabeçalho: Adicionamos "  " (2 espaços) no início para compensar o tamanho do Emoji nas linhas
+        header_fmt = "   {:^14} | {:^6} | {:^7} | {:^25}"
         header = header_fmt.format("LT", "Doca", "CPT", "Destino")
-        
-        separator = "─" * len(header)
+        separator = "   " + ("─" * (len(header) - 3))
         
         mensagens.append(header)
         mensagens.append(separator)
 
-        # 2. Dados: LT e Destino à Esquerda (<), Doca e CPT Centralizados (^)
-        # Nota: As larguras (14, 6, 7, 25) são IDÊNTICAS às do cabeçalho
+        # Template da Linha (sem o emoji ainda)
         row_fmt = "{:<14} | {:^6} | {:^7} | {:<25}"
 
-        # Agrupamento por Hora
         df_2h['Hora'] = df_2h['CPT'].dt.hour
         df_2h = df_2h.sort_values(by=['CPT', 'Station Name'])
 
@@ -152,14 +147,26 @@ def montar_mensagem(df):
             mensagens.append(f"{qtd} LH{suffix} pendente{suffix} às {hora:02d}h")
             
             for _, row in grupo.iterrows():
-                # Corta os textos para garantir que não estourem a largura
+                # Cálculos de tempo para o Emoji
+                cpt = row['CPT']
+                minutos = int((cpt - agora).total_seconds() // 60)
+                
+                # Definição do Emoji (Lógica do Script Antigo)
+                prefixo = "  " # Espaço padrão se estiver no prazo
+                if minutos < 0:
+                    prefixo = "❗️"
+                elif minutos <= 10:
+                    prefixo = "⚠️"
+
+                # Formatação dos dados
                 lt = row['LH Trip Number'].strip()[:14]
                 destino = row['Station Name'].strip()[:25]
-                cpt = row['CPT'].strftime('%H:%M')
+                cpt_str = cpt.strftime('%H:%M')
                 doca = formatar_doca(row['Doca'])[:6]
 
-                # Aplica o template nos dados
-                linha = row_fmt.format(lt, doca, cpt, destino)
+                # Monta a linha: Emoji + Tabela Fixa
+                dados_formatados = row_fmt.format(lt, doca, cpt_str, destino)
+                linha = f"{prefixo} {dados_formatados}"
                 mensagens.append(linha)
         
     mensagens.append("") 
@@ -184,9 +191,6 @@ def montar_mensagem(df):
         else:
             mensagens.append(f"✅ 0 LHs pendentes no {turno}")
 
-    # Fecha o bloco
-    mensagens.append("```")
-
     return "\n".join(mensagens)
 
 
@@ -210,22 +214,30 @@ def enviar_webhook(mensagem, webhook_url):
 
 
 def enviar_em_blocos(mensagem, webhook_url, limite=3000):
-    if len(mensagem) <= limite:
-        enviar_webhook(mensagem, webhook_url)
-        return
-
+    """
+    Envolve a mensagem nas crases (```) e envia.
+    Mantém a lógica do script antigo de gerenciar o bloco aqui.
+    """
     linhas = mensagem.split('\n')
     bloco = []
     
+    # Adicionamos o espaço após as crases para evitar bugs visuais
+    prefixo_bloco = "``` \n"
+    sufixo_bloco = "\n```"
+
     for linha in linhas:
-        if len("\n".join(bloco)) + len(linha) + 1 > limite:
-            enviar_webhook("\n".join(bloco), webhook_url)
-            time.sleep(1)
-            bloco = []
         bloco.append(linha)
+        # Verifica se o próximo bloco estouraria o limite
+        texto_atual = "\n".join(bloco)
+        if len(prefixo_bloco + texto_atual + sufixo_bloco) > limite:
+            # Remove a última linha que fez estourar e envia o anterior
+            bloco.pop() 
+            enviar_webhook(prefixo_bloco + "\n".join(bloco) + sufixo_bloco, webhook_url)
+            time.sleep(1)
+            bloco = [linha] # Começa novo bloco com a linha que sobrou
     
     if bloco:
-        enviar_webhook("\n".join(bloco), webhook_url)
+        enviar_webhook(prefixo_bloco + "\n".join(bloco) + sufixo_bloco, webhook_url)
 
 
 def main():

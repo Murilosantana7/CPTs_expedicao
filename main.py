@@ -10,7 +10,7 @@ import os
 import json
 
 # --- CONSTANTES GLOBAIS ---
-SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+SCOPES = ['[https://www.googleapis.com/auth/spreadsheets](https://www.googleapis.com/auth/spreadsheets)']
 NOME_ABA = 'Base Pending Tratado'
 INTERVALO = 'A:F'
 
@@ -116,34 +116,46 @@ def montar_mensagem(df):
     totais = df['Turno'].value_counts().to_dict()
 
     df_2h = df[(df['CPT'] >= agora) & (df['CPT'] < limite_2h)].copy()
+    
+    mensagens.append("🚛 LTs pendentes:\n")
+
     if df_2h.empty:
-        mensagens.append("🚛 LTs pendentes:\n\n✅ Sem LT pendente para as próximas 2h.\n")
+        mensagens.append("✅ Sem LT pendente para as próximas 2h.\n")
     else:
-        mensagens.append("🚛 LTs pendentes:\n")
         df_2h['Hora'] = df_2h['CPT'].dt.hour
 
         for hora, grupo in df_2h.groupby('Hora', sort=True):
             qtd_lhs = len(grupo)
             mensagens.append(f"{qtd_lhs} LH{'s' if qtd_lhs > 1 else ''} pendente{'s' if qtd_lhs > 1 else ''} às {hora:02d}h\n")
+            
+            mensagens.append("```text")
+            
+            # Cabeçalho da tabela
+            # LT: 13 chars | Doca: 8 chars | CPT: 5 chars | Destino: Livre
+            mensagens.append(f"{'LT':<13} | {'Doca':^8} | {'CPT':^5} | Destino")
+            
             for _, row in grupo.iterrows():
+                # 1. LT
                 lt = row['LH Trip Number'].strip()
+
+                # 2. DESTINO (Sem cortes)
                 destino = row['Station Name'].strip()
-                cpt = row['CPT']
-                cpt_str = cpt.strftime('%H:%M')
-                doca = formatar_doca(row['Doca'])
 
-                minutos = int((cpt - agora).total_seconds() // 60)
-                if minutos < 0:
-                    prefixo = "❗️"
-                    status = "(ATRASADO)"
-                elif minutos <= 10:
-                    prefixo = "⚠️"
-                    status = f"(FALTAM {minutos} MIN)"
+                # 3. DOCA (Remove a palavra "Doca " e mantém apenas o número ou "--")
+                doca_full = formatar_doca(row['Doca'])
+                if "Doca --" in doca_full:
+                    doca = "--"
                 else:
-                    prefixo = ""
-                    status = ""
+                    doca = doca_full.replace("Doca ", "") 
 
-                mensagens.append(f"{prefixo} {lt} | {doca} | Destino: {destino} | CPT: {cpt_str} {status}".strip())
+                # 4. CPT
+                cpt = row['CPT'].strftime('%H:%M')
+                
+                # Montagem da linha com espaçamento fixo para as 3 primeiras colunas
+                linha = f"{lt:<13} | {doca:^8} | {cpt:^5} | {destino}"
+                mensagens.append(linha)
+            
+            mensagens.append("```") 
             mensagens.append("")
 
     mensagens.append("─" * 40)
@@ -157,7 +169,9 @@ def montar_mensagem(df):
 
     for turno in prioridades_turno.get(turno_atual, []):
         qtd = totais.get(turno, 0)
-        mensagens.append(f"⚠️ {qtd} LH{'s' if qtd != 1 else ''} pendente{'s' if qtd != 1 else ''} no {turno}")
+        # Exibe apenas se houver pendências
+        if qtd > 0:
+            mensagens.append(f"⚠️ {qtd} LH{'s' if qtd != 1 else ''} pendente{'s' if qtd != 1 else ''} no {turno}")
 
     return "\n".join(mensagens)
 

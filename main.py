@@ -16,10 +16,6 @@ INTERVALO = 'A:F'
 
 # --- AUTENTICAÇÃO ---
 def autenticar_google():
-    """
-    Autentica usando o Secret JSON do GitHub.
-    Tenta ler como JSON puro primeiro. Se falhar, tenta decodificar de Base64.
-    """
     creds_var = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON')
     
     if not creds_var:
@@ -28,12 +24,10 @@ def autenticar_google():
 
     creds_dict = None
 
-    # 1. Tenta carregar como JSON direto
     try:
         creds_dict = json.loads(creds_var)
         print("✅ Credenciais carregadas via JSON puro.")
     except json.JSONDecodeError:
-        # 2. Se falhar, tenta decodificar Base64
         try:
             print("⚠️ JSON direto inválido, tentando decodificar Base64...")
             decoded_bytes = base64.b64decode(creds_var, validate=True)
@@ -41,7 +35,7 @@ def autenticar_google():
             creds_dict = json.loads(decoded_str)
             print("✅ Credenciais decodificadas de Base64 com sucesso.")
         except (binascii.Error, json.JSONDecodeError, UnicodeDecodeError) as e:
-            print(f"❌ Erro Crítico: Falha ao ler credenciais (Nem JSON puro, nem Base64 válido). Detalhe: {e}")
+            print(f"❌ Erro Crítico: Falha ao ler credenciais. Detalhe: {e}")
             return None
 
     if not creds_dict:
@@ -49,7 +43,6 @@ def autenticar_google():
 
     try:
         cliente = gspread.service_account_from_dict(creds_dict, scopes=SCOPES)
-        print("✅ Cliente gspread autenticado com Service Account.")
         return cliente
     except Exception as e:
         print(f"❌ Erro ao conectar com gspread: {e}")
@@ -82,13 +75,11 @@ def obter_dados_expedicao(cliente, spreadsheet_id):
     df = pd.DataFrame(dados[1:], columns=dados[0])
     df.columns = df.columns.str.strip()
 
-    # Verifica colunas essenciais
     cols_necessarias = ['Doca', 'LH Trip Number', 'Station Name', 'CPT']
     for col in cols_necessarias:
         if col not in df.columns:
             return None, f"⚠️ Coluna '{col}' não encontrada."
 
-    # Limpeza e conversão
     df = df[df['LH Trip Number'].str.strip() != '']
     df['CPT'] = pd.to_datetime(df['CPT'], dayfirst=True, errors='coerce')
     df = df.dropna(subset=['CPT'])
@@ -98,7 +89,6 @@ def obter_dados_expedicao(cliente, spreadsheet_id):
 
 
 def formatar_doca(doca):
-    """Formata a doca para caber na coluna da tabela."""
     doca = str(doca).strip()
     if not doca or doca == '-' or doca == '':
         return "--"
@@ -116,12 +106,14 @@ def montar_mensagem(df):
     limite_2h = agora + timedelta(hours=2)
     turno_atual = identificar_turno(agora.hour)
 
-    # Inicia a lista já abrindo o bloco de código único com 'text' para evitar formatação colorida
-    mensagens = ["```text"]
+    # --- CORREÇÃO AQUI ---
+    # Usamos apenas ``` sem escrever 'text' na frente para garantir que o Seatalk
+    # entenda como bloco de código mas não imprima a palavra 'text'.
+    mensagens = ["```"]
 
     # --- TÍTULO ---
     mensagens.append("🚛 LTs pendentes:")
-    mensagens.append("") # Linha de respiro
+    mensagens.append("") 
 
     # --- TABELA ---
     df_2h = df[(df['CPT'] >= agora) & (df['CPT'] < limite_2h)].copy()
@@ -129,7 +121,6 @@ def montar_mensagem(df):
     if df_2h.empty:
         mensagens.append("Sem pendências para as próximas 2h.")
     else:
-        # Configuração das larguras das colunas
         w_lt = 14
         w_doca = 7
         w_cpt = 7
@@ -151,13 +142,12 @@ def montar_mensagem(df):
             cpt_str = cpt.strftime('%H:%M')
             doca = formatar_doca(row['Doca'])[:w_doca]
 
-            # Monta a linha
             linha = f"{lt.ljust(w_lt)} | {doca.center(w_doca)} | {cpt_str.center(w_cpt)} | {destino.ljust(w_dest)}"
             mensagens.append(linha)
         
     mensagens.append("") 
 
-    # --- RODAPÉ (RESUMO DOS TURNOS) ---
+    # --- RODAPÉ ---
     mensagens.append("─" * 40)
     mensagens.append("LH´s pendentes para os próximos turnos:")
     mensagens.append("")
@@ -176,7 +166,7 @@ def montar_mensagem(df):
         else:
             mensagens.append(f"✅ 0 LHs pendentes no {turno}")
 
-    # Fecha o bloco de código
+    # Fecha o bloco
     mensagens.append("```")
 
     return "\n".join(mensagens)
@@ -202,17 +192,10 @@ def enviar_webhook(mensagem, webhook_url):
 
 
 def enviar_em_blocos(mensagem, webhook_url, limite=3000):
-    """
-    Envia a mensagem.
-    IMPORTANTE: Não adiciona mais crases (```), pois a função
-    montar_mensagem já criou o bloco único.
-    """
     if len(mensagem) <= limite:
         enviar_webhook(mensagem, webhook_url)
         return
 
-    # Se for necessário dividir, tentamos quebrar por linha
-    # (Embora dividir um bloco de código possa quebrar o visual, garante o envio)
     linhas = mensagem.split('\n')
     bloco = []
     

@@ -107,7 +107,6 @@ def formatar_doca(doca):
         return doca
 
 
-# --- FUNÇÃO ALTERADA CONFORME SOLICITADO ---
 def montar_mensagem(df):
     agora = datetime.now(timezone('America/Sao_Paulo')).replace(tzinfo=None)
     limite_2h = agora + timedelta(hours=2)
@@ -129,8 +128,8 @@ def montar_mensagem(df):
             qtd_lhs = len(grupo)
             mensagens.append(f"{qtd_lhs} LH{'s' if qtd_lhs > 1 else ''} pendente{'s' if qtd_lhs > 1 else ''} às {hora:02d}h\n")
             
-            # Início do bloco de código para tabela
-            mensagens.append("```text")
+            # MUDANÇA AQUI: Removido "text" para evitar erro de formatação no Seatalk
+            mensagens.append("```")
             
             # Cabeçalho fixo:
             # LT (13 chars) | Doca (8 chars) | CPT (5 chars) | Destino (Livre)
@@ -140,10 +139,10 @@ def montar_mensagem(df):
                 # 1. LT
                 lt = row['LH Trip Number'].strip()
 
-                # 2. DESTINO (Sem cortes)
+                # 2. DESTINO
                 destino = row['Station Name'].strip()
 
-                # 3. DOCA (Tratada para exibir apenas número ou traço)
+                # 3. DOCA
                 doca_full = formatar_doca(row['Doca'])
                 if "Doca --" in doca_full:
                     doca = "--"
@@ -154,7 +153,6 @@ def montar_mensagem(df):
                 cpt = row['CPT'].strftime('%H:%M')
                 
                 # Montagem da linha
-                # Alinhamento: Esquerda(13) | Centro(8) | Centro(5) | Livre
                 linha = f"{lt:<13} | {doca:^8} | {cpt:^5} | {destino}"
                 mensagens.append(linha)
             
@@ -177,7 +175,6 @@ def montar_mensagem(df):
             mensagens.append(f"⚠️ {qtd} LH{'s' if qtd != 1 else ''} pendente{'s' if qtd != 1 else ''} no {turno}")
 
     return "\n".join(mensagens)
-# -------------------------------------------
 
 
 def enviar_webhook(mensagem, webhook_url):
@@ -221,7 +218,7 @@ def main():
         print("❌ Erro: Variáveis de ambiente SEATALK_WEBHOOK_URL e/ou SPREADSHEET_ID não definidas.")
         return
 
-    cliente = autenticar_google()  # Agora trata Base64 automaticamente
+    cliente = autenticar_google()
     if not cliente:
         print("❌ Falha na autenticação. Encerrando.")
         return

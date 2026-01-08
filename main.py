@@ -10,7 +10,7 @@ import os
 import json
 
 # --- CONSTANTES GLOBAIS ---
-SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+SCOPES = ['[https://www.googleapis.com/auth/spreadsheets](https://www.googleapis.com/auth/spreadsheets)']
 NOME_ABA = 'Base Pending Tratado'
 INTERVALO = 'A:F'
 
@@ -91,19 +91,12 @@ def obter_dados_expedicao(cliente, spreadsheet_id):
 def formatar_doca(doca):
     """
     Deixa ESTRITAMENTE os números.
-    Ex: 'EXT.OUT 64' -> '64'
-        'Ext 09'     -> '09'
-        'Doca 12'    -> '12'
-        '-'          -> '--'
     """
     doca = str(doca).strip()
     if not doca or doca == '-' or doca == '':
         return "--"
     
-    # Filtra apenas os dígitos
     numeros = ''.join(filter(str.isdigit, doca))
-    
-    # Se não tiver números (ex: apenas "-"), retorna --
     return numeros if numeros else "--"
 
 
@@ -112,7 +105,7 @@ def montar_mensagem(df):
     limite_2h = agora + timedelta(hours=2)
     turno_atual = identificar_turno(agora.hour)
 
-    # Inicia o bloco com ``` + espaço
+    # Inicia o bloco de código com ESPAÇO para evitar texto extra
     mensagens = ["``` "] 
 
     # --- TÍTULO ---
@@ -125,14 +118,16 @@ def montar_mensagem(df):
     if df_2h.empty:
         mensagens.append("Sem pendências para as próximas 2h.")
     else:
-        # --- LARGURAS ---
+        # --- DEFINIÇÃO DE LARGURAS FIXAS ---
+        # Ajustei w_doca para 6 para centralizar bem o texto "Doca" (4 letras) + margem
         w_lt = 14
-        w_doca = 4   # Mínimo absoluto
-        w_cpt = 5    
+        w_doca = 6   
+        w_cpt = 7    
         w_dest = 25  
 
         # --- CABEÇALHO ---
-        header = f"{'LT'.center(w_lt)} | {'Doca'.center(w_doca)} | {'CPT'.center(w_cpt)} | {'Destino'.ljust(w_dest)}"
+        # Importante: O pipe '|' adiciona caracteres. A conta deve ser exata.
+        header = f"{'LT'.ljust(w_lt)} | {'Doca'.center(w_doca)} | {'CPT'.center(w_cpt)} | {'Destino'.ljust(w_dest)}"
         separator = "─" * len(header)
         
         mensagens.append(header)
@@ -140,24 +135,27 @@ def montar_mensagem(df):
 
         # Adiciona coluna de Hora para agrupar
         df_2h['Hora'] = df_2h['CPT'].dt.hour
+        # Ordena por CPT e depois por Nome
         df_2h = df_2h.sort_values(by=['CPT', 'Station Name'])
 
-        # Loop agrupando por hora (A lógica que você pediu de volta)
+        # Loop agrupando por hora
         for hora, grupo in df_2h.groupby('Hora'):
             qtd = len(grupo)
             suffix = "s" if qtd > 1 else ""
             
-            # Linha de separação visual dentro do bloco
+            # Título do grupo (ex: 4 LTs pendentes às 16h)
             mensagens.append("") 
             mensagens.append(f"{qtd} LH{suffix} pendente{suffix} às {hora:02d}h")
             
             for _, row in grupo.iterrows():
+                # Corta o texto EXATAMENTE no tamanho da coluna para não quebrar a tabela
                 lt = row['LH Trip Number'].strip()[:w_lt]
                 destino = row['Station Name'].strip()[:w_dest]
                 cpt = row['CPT']
                 cpt_str = cpt.strftime('%H:%M')
                 doca = formatar_doca(row['Doca'])[:w_doca]
 
+                # Monta a linha usando as mesmas larguras e alinhamentos do cabeçalho
                 linha = f"{lt.ljust(w_lt)} | {doca.center(w_doca)} | {cpt_str.center(w_cpt)} | {destino.ljust(w_dest)}"
                 mensagens.append(linha)
         

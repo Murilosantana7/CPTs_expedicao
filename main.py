@@ -89,16 +89,22 @@ def obter_dados_expedicao(cliente, spreadsheet_id):
 
 
 def formatar_doca(doca):
+    """
+    Deixa ESTRITAMENTE os números.
+    Ex: 'EXT.OUT 64' -> '64'
+        'Ext 09'     -> '09'
+        'Doca 12'    -> '12'
+        '-'          -> '--'
+    """
     doca = str(doca).strip()
     if not doca or doca == '-' or doca == '':
         return "--"
-    elif doca.startswith("EXT.OUT"):
-        numeros = ''.join(filter(str.isdigit, doca))
-        return f"Ext{numeros}"
-    elif doca.startswith("Doca"):
-        return doca.replace("Doca", "").strip()
-    else:
-        return doca
+    
+    # Filtra apenas os dígitos
+    numeros = ''.join(filter(str.isdigit, doca))
+    
+    # Se não tiver números (ex: apenas "-"), retorna --
+    return numeros if numeros else "--"
 
 
 def montar_mensagem(df):
@@ -106,10 +112,8 @@ def montar_mensagem(df):
     limite_2h = agora + timedelta(hours=2)
     turno_atual = identificar_turno(agora.hour)
 
-    # --- CORREÇÃO AQUI ---
-    # Usamos apenas ``` sem escrever 'text' na frente para garantir que o Seatalk
-    # entenda como bloco de código mas não imprima a palavra 'text'.
-    mensagens = ["```"]
+    # Inicia o bloco com ``` + espaço
+    mensagens = ["``` "] 
 
     # --- TÍTULO ---
     mensagens.append("🚛 LTs pendentes:")
@@ -121,29 +125,41 @@ def montar_mensagem(df):
     if df_2h.empty:
         mensagens.append("Sem pendências para as próximas 2h.")
     else:
+        # --- LARGURAS ---
         w_lt = 14
-        w_doca = 7
-        w_cpt = 7
-        w_dest = 20
+        w_doca = 4   # Mínimo absoluto
+        w_cpt = 5    
+        w_dest = 25  
 
-        # Cabeçalho: LT | Doca | CPT | Destino
-        header = f"{'LT'.ljust(w_lt)} | {'Doca'.center(w_doca)} | {'CPT'.center(w_cpt)} | {'Destino'.ljust(w_dest)}"
-        separator = "-" * len(header)
+        # --- CABEÇALHO ---
+        header = f"{'LT'.center(w_lt)} | {'Doca'.center(w_doca)} | {'CPT'.center(w_cpt)} | {'Destino'.ljust(w_dest)}"
+        separator = "─" * len(header)
         
         mensagens.append(header)
         mensagens.append(separator)
 
-        df_2h = df_2h.sort_values(by='CPT')
+        # Adiciona coluna de Hora para agrupar
+        df_2h['Hora'] = df_2h['CPT'].dt.hour
+        df_2h = df_2h.sort_values(by=['CPT', 'Station Name'])
 
-        for _, row in df_2h.iterrows():
-            lt = row['LH Trip Number'].strip()[:w_lt]
-            destino = row['Station Name'].strip()[:w_dest]
-            cpt = row['CPT']
-            cpt_str = cpt.strftime('%H:%M')
-            doca = formatar_doca(row['Doca'])[:w_doca]
+        # Loop agrupando por hora (A lógica que você pediu de volta)
+        for hora, grupo in df_2h.groupby('Hora'):
+            qtd = len(grupo)
+            suffix = "s" if qtd > 1 else ""
+            
+            # Linha de separação visual dentro do bloco
+            mensagens.append("") 
+            mensagens.append(f"{qtd} LH{suffix} pendente{suffix} às {hora:02d}h")
+            
+            for _, row in grupo.iterrows():
+                lt = row['LH Trip Number'].strip()[:w_lt]
+                destino = row['Station Name'].strip()[:w_dest]
+                cpt = row['CPT']
+                cpt_str = cpt.strftime('%H:%M')
+                doca = formatar_doca(row['Doca'])[:w_doca]
 
-            linha = f"{lt.ljust(w_lt)} | {doca.center(w_doca)} | {cpt_str.center(w_cpt)} | {destino.ljust(w_dest)}"
-            mensagens.append(linha)
+                linha = f"{lt.ljust(w_lt)} | {doca.center(w_doca)} | {cpt_str.center(w_cpt)} | {destino.ljust(w_dest)}"
+                mensagens.append(linha)
         
     mensagens.append("") 
 
@@ -161,8 +177,9 @@ def montar_mensagem(df):
 
     for turno in prioridades_turno.get(turno_atual, []):
         qtd = totais.get(turno, 0)
+        suffix = "s" if qtd != 1 else ""
         if qtd > 0:
-            mensagens.append(f"⚠️ {qtd} LHs pendentes no {turno}")
+            mensagens.append(f"⚠️ {qtd} LH{suffix} pendente{suffix} no {turno}")
         else:
             mensagens.append(f"✅ 0 LHs pendentes no {turno}")
 

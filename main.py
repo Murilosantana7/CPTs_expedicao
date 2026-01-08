@@ -8,13 +8,13 @@ from datetime import datetime, timedelta
 from pytz import timezone
 from google.oauth2.service_account import Credentials
 
-# --- CONFIGURAÇÕES (MANTIDAS) ---
+# --- CONFIGURAÇÕES ---
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 NOME_ABA = 'Base Pending Tratado'
 INTERVALO = 'A:F'
 
 def autenticar_google():
-    """Lógica de autenticação preservada conforme solicitado."""
+    """Lógica de autenticação mantida intacta."""
     creds_var = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON')
     if not creds_var: return None
     try:
@@ -35,7 +35,6 @@ def montar_mensagem(df):
     agora = datetime.now(timezone('America/Sao_Paulo')).replace(tzinfo=None)
     limite_2h = agora + timedelta(hours=2)
     
-    # Filtro das próximas 2 horas
     df_2h = df[(df['CPT'] >= agora) & (df['CPT'] < limite_2h)].copy()
     
     saida = ["🚛 **LTs pendentes:**\n"]
@@ -43,23 +42,26 @@ def montar_mensagem(df):
     if df_2h.empty:
         saida.append("✅ Sem pendências próximas.")
     else:
-        # --- AJUSTE DE FORMATAÇÃO DO BLOCO ---
+        # --- BLOCO DE CÓDIGO PADRÃO ---
         bloco = ["```"]
         
-        # Larguras otimizadas para evitar quebra de linha no celular
-        w_lt = 14   # Coluna LT
-        w_doca = 5  # Coluna DOCA
-        w_cpt = 6   # Coluna CPT
+        # Larguras ajustadas para o layout das imagens enviadas
+        w_lt = 15
+        w_doca = 6
+        w_cpt = 7
         
-        # Cabeçalho da Tabela
+        # Cabeçalho idêntico ao da imagem
         header = f"{'LT':<{w_lt}} {'DOCA':<{w_doca}} {'CPT':<{w_cpt}} DESTINO"
         bloco.append(header)
-        bloco.append("-" * 42) # Linha divisória proporcional
+        bloco.append("-" * 48)
 
         df_2h['H_Grupo'] = df_2h['CPT'].dt.hour
         
-        for hora, grupo in df_2h.groupby('H_Grupo'):
-            # Identificador de Horário dentro do bloco
+        # Ordenar por CPT para garantir a sequência correta
+        df_2h = df_2h.sort_values('CPT')
+        
+        for hora, grupo in df_2h.groupby('H_Grupo', sort=False):
+            # Título do grupo (ex: [3 LHs às 18h])
             bloco.append(f"\n[{len(grupo)} LHs às {hora:02d}h]")
             
             for _, row in grupo.iterrows():
@@ -67,7 +69,7 @@ def montar_mensagem(df):
                 doca = formatar_doca(row['Doca'])
                 cpt = row['CPT'].strftime('%H:%M')
                 
-                # Destino com limite de caracteres para manter o alinhamento reto
+                # Destino: Limita o tamanho para não quebrar a linha lateralmente
                 destino = row['Station Name'].strip()[:20]
                 
                 linha = f"{lt:<{w_lt}} {doca:<{w_doca}} {cpt:<{w_cpt}} {destino}"
@@ -76,12 +78,13 @@ def montar_mensagem(df):
         bloco.append("```")
         saida.append("\n".join(bloco))
 
-    # Resumo de Turnos (Fora do bloco de código)
+    # Resumo de Turnos conforme image_b9b434.png
     saida.append("\n**Resumo Turnos:**")
     totais = df['Turno'].value_counts().to_dict()
+    # Garante a ordem Turno 1, 2, 3 no resumo
     for t in ['Turno 1', 'Turno 2', 'Turno 3']:
-        if t in totais:
-            saida.append(f"• {t}: {totais[t]} pendentes")
+        qtd = totais.get(t, 0)
+        saida.append(f"• {t}: {qtd} pendentes")
 
     return "\n".join(saida)
 
@@ -100,9 +103,11 @@ def main():
         df = df_raw[1:].copy()
         df.columns = df_raw.iloc[0].str.strip()
         
+        # Converte CPT e remove valores inválidos
         df['CPT'] = pd.to_datetime(df['CPT'], dayfirst=True, errors='coerce')
         df = df.dropna(subset=['CPT'])
         
+        # Lógica de turnos
         def get_turno(h):
             if 6 <= h < 14: return "Turno 1"
             if 14 <= h < 22: return "Turno 2"
@@ -111,9 +116,16 @@ def main():
         
         mensagem = montar_mensagem(df)
         
-        # Envio final com formatação Markdown (format: 1)
-        requests.post(webhook, json={"tag": "text", "text": {"format": 1, "content": mensagem}})
-        print("✅ Mensagem enviada com layout atualizado!")
+        # Envio para o Webhook do Seatalk
+        payload = {
+            "tag": "text",
+            "text": {
+                "format": 1, # Markdown habilitado
+                "content": mensagem
+            }
+        }
+        requests.post(webhook, json=payload).raise_for_status()
+        print("✅ Script finalizado com sucesso no novo padrão.")
         
     except Exception as e:
         print(f"Erro na execução: {e}")

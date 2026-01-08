@@ -106,7 +106,6 @@ def formatar_doca(doca):
         numeros = ''.join(filter(str.isdigit, doca))
         return f"Ext{numeros}"
     elif doca.startswith("Doca"):
-        # Remove a palavra "Doca" para economizar espaço
         return doca.replace("Doca", "").strip()
     else:
         return doca
@@ -117,31 +116,31 @@ def montar_mensagem(df):
     limite_2h = agora + timedelta(hours=2)
     turno_atual = identificar_turno(agora.hour)
 
-    # Inicia a lista já abrindo o bloco de código
-    linhas = ["```text"]
+    # Inicia a lista já abrindo o bloco de código único com 'text' para evitar formatação colorida
+    mensagens = ["```text"]
 
-    # --- PARTE 1: TABELA DAS PRÓXIMAS 2H ---
+    # --- TÍTULO ---
+    mensagens.append("🚛 LTs pendentes:")
+    mensagens.append("") # Linha de respiro
+
+    # --- TABELA ---
     df_2h = df[(df['CPT'] >= agora) & (df['CPT'] < limite_2h)].copy()
     
     if df_2h.empty:
-        linhas.append("🚛 LTs pendentes: Sem pendências para as próximas 2h.")
-        linhas.append("")
+        mensagens.append("Sem pendências para as próximas 2h.")
     else:
-        linhas.append("🚛 LTs pendentes (Próximas 2h):")
-        linhas.append("") 
-
         # Configuração das larguras das colunas
         w_lt = 14
-        w_doca = 6
+        w_doca = 7
         w_cpt = 7
-        w_dest = 15
+        w_dest = 20
 
         # Cabeçalho: LT | Doca | CPT | Destino
         header = f"{'LT'.ljust(w_lt)} | {'Doca'.center(w_doca)} | {'CPT'.center(w_cpt)} | {'Destino'.ljust(w_dest)}"
         separator = "-" * len(header)
         
-        linhas.append(header)
-        linhas.append(separator)
+        mensagens.append(header)
+        mensagens.append(separator)
 
         df_2h = df_2h.sort_values(by='CPT')
 
@@ -154,13 +153,14 @@ def montar_mensagem(df):
 
             # Monta a linha
             linha = f"{lt.ljust(w_lt)} | {doca.center(w_doca)} | {cpt_str.center(w_cpt)} | {destino.ljust(w_dest)}"
-            linhas.append(linha)
+            mensagens.append(linha)
         
-        linhas.append("") # Linha em branco após a tabela
+    mensagens.append("") 
 
-    # --- PARTE 2: RESUMO DOS TURNOS ---
-    linhas.append("─" * 40)
-    linhas.append("📊 Resumo Próximos Turnos:")
+    # --- RODAPÉ (RESUMO DOS TURNOS) ---
+    mensagens.append("─" * 40)
+    mensagens.append("LH´s pendentes para os próximos turnos:")
+    mensagens.append("")
     
     totais = df['Turno'].value_counts().to_dict()
     prioridades_turno = {
@@ -171,12 +171,15 @@ def montar_mensagem(df):
 
     for turno in prioridades_turno.get(turno_atual, []):
         qtd = totais.get(turno, 0)
-        linhas.append(f"{turno}: {qtd} pendentes")
+        if qtd > 0:
+            mensagens.append(f"⚠️ {qtd} LHs pendentes no {turno}")
+        else:
+            mensagens.append(f"✅ 0 LHs pendentes no {turno}")
 
     # Fecha o bloco de código
-    linhas.append("```")
+    mensagens.append("```")
 
-    return "\n".join(linhas)
+    return "\n".join(mensagens)
 
 
 def enviar_webhook(mensagem, webhook_url):
@@ -200,20 +203,19 @@ def enviar_webhook(mensagem, webhook_url):
 
 def enviar_em_blocos(mensagem, webhook_url, limite=3000):
     """
-    Envia a mensagem. Se for maior que o limite, tenta dividir.
-    NOTA: Como a mensagem agora já contém os ``` internos, 
-    essa função apenas envia o texto cru, sem adicionar mais crases.
+    Envia a mensagem.
+    IMPORTANTE: Não adiciona mais crases (```), pois a função
+    montar_mensagem já criou o bloco único.
     """
     if len(mensagem) <= limite:
         enviar_webhook(mensagem, webhook_url)
         return
 
-    # Divisão simples caso a mensagem seja gigante (fallback)
+    # Se for necessário dividir, tentamos quebrar por linha
+    # (Embora dividir um bloco de código possa quebrar o visual, garante o envio)
     linhas = mensagem.split('\n')
     bloco = []
     
-    # Se precisarmos dividir, o visual da tabela pode quebrar entre mensagens,
-    # mas garantimos que a mensagem chegue.
     for linha in linhas:
         if len("\n".join(bloco)) + len(linha) + 1 > limite:
             enviar_webhook("\n".join(bloco), webhook_url)

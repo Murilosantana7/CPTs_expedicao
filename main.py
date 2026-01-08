@@ -10,7 +10,7 @@ import os
 import json
 
 # --- CONSTANTES GLOBAIS ---
-SCOPES = ['[https://www.googleapis.com/auth/spreadsheets](https://www.googleapis.com/auth/spreadsheets)']
+SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 NOME_ABA = 'Base Pending Tratado'
 INTERVALO = 'A:F'
 
@@ -107,6 +107,7 @@ def formatar_doca(doca):
         return doca
 
 
+# --- FUNÇÃO ALTERADA CONFORME SOLICITADO ---
 def montar_mensagem(df):
     agora = datetime.now(timezone('America/Sao_Paulo')).replace(tzinfo=None)
     limite_2h = agora + timedelta(hours=2)
@@ -128,10 +129,11 @@ def montar_mensagem(df):
             qtd_lhs = len(grupo)
             mensagens.append(f"{qtd_lhs} LH{'s' if qtd_lhs > 1 else ''} pendente{'s' if qtd_lhs > 1 else ''} às {hora:02d}h\n")
             
+            # Início do bloco de código para tabela
             mensagens.append("```text")
             
-            # Cabeçalho da tabela
-            # LT: 13 chars | Doca: 8 chars | CPT: 5 chars | Destino: Livre
+            # Cabeçalho fixo:
+            # LT (13 chars) | Doca (8 chars) | CPT (5 chars) | Destino (Livre)
             mensagens.append(f"{'LT':<13} | {'Doca':^8} | {'CPT':^5} | Destino")
             
             for _, row in grupo.iterrows():
@@ -141,7 +143,7 @@ def montar_mensagem(df):
                 # 2. DESTINO (Sem cortes)
                 destino = row['Station Name'].strip()
 
-                # 3. DOCA (Remove a palavra "Doca " e mantém apenas o número ou "--")
+                # 3. DOCA (Tratada para exibir apenas número ou traço)
                 doca_full = formatar_doca(row['Doca'])
                 if "Doca --" in doca_full:
                     doca = "--"
@@ -151,7 +153,8 @@ def montar_mensagem(df):
                 # 4. CPT
                 cpt = row['CPT'].strftime('%H:%M')
                 
-                # Montagem da linha com espaçamento fixo para as 3 primeiras colunas
+                # Montagem da linha
+                # Alinhamento: Esquerda(13) | Centro(8) | Centro(5) | Livre
                 linha = f"{lt:<13} | {doca:^8} | {cpt:^5} | {destino}"
                 mensagens.append(linha)
             
@@ -174,6 +177,7 @@ def montar_mensagem(df):
             mensagens.append(f"⚠️ {qtd} LH{'s' if qtd != 1 else ''} pendente{'s' if qtd != 1 else ''} no {turno}")
 
     return "\n".join(mensagens)
+# -------------------------------------------
 
 
 def enviar_webhook(mensagem, webhook_url):
